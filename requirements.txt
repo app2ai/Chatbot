@@ -1,0 +1,12 @@
+# langcgain lib
+langchain
+
+# langraph lib
+langgraph
+
+# dot environment
+dotenv
+
+# Open AI
+openai
+langchain-openai
