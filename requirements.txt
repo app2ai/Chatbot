@@ -10,3 +10,6 @@ dotenv
 # Open AI
 openai
 langchain-openai
+
+# SQlite lib
+langgraph-checkpoint-sqlite
