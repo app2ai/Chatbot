@@ -1,5 +1,6 @@
 # langcgain lib
 langchain
+langchain_community
 
 # langraph lib
 langgraph

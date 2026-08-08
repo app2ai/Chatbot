@@ -6,10 +6,17 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph.message import add_messages
 from dotenv import load_dotenv
 import sqlite3
+from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph_tools import ChatTools as ct
 
 # ------------ Chat Model ----------------#
 load_dotenv()
 llm = ChatOpenAI(model='gpt-4o-mini')
+
+
+tools = [ct.search_tool, ct.currency_exchange]
+
+llm_with_tools = llm.bind_tools(tools=tools)
 
 # ------------ Chat State ----------------# 
 class ChatState(TypedDict):
@@ -18,9 +25,10 @@ class ChatState(TypedDict):
 # ------------- Nodes method ---------------#
 def chat_node(state: ChatState):
     messages = state['messages']
-    response = llm.invoke(messages)
+    response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
 
+tools_node = ToolNode(tools)
 # ------------- Checkpointer ---------------#
 connection = sqlite3.connect('chatbot.db',check_same_thread=False)
 checkpointer = SqliteSaver(conn=connection)
@@ -30,10 +38,12 @@ graph = StateGraph(ChatState)
 
 # -------------- Define nodes ---------------#
 graph.add_node("chat_node", chat_node)
+graph.add_node("tools", tools_node)
 
 # -------------- Define edges ---------------#
 graph.add_edge(START, "chat_node")
-graph.add_edge("chat_node", END)
+graph.add_conditional_edges("chat_node", tools_condition)
+graph.add_edge('tools', 'chat_node')
 
 # --------------- Compile graph -------------#
 chatbot_db = graph.compile(checkpointer=checkpointer)
