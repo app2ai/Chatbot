@@ -1,7 +1,8 @@
 import streamlit as st
-from langgraph_db_backend import chatbot_db, get_all_threads
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langgraph_db_backend import chatbot_db, retrieve_all_threads, submit_async_task
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, AIMessageChunk
 import uuid
+import queue
 
 # **************************************** utility functions *************************
 
@@ -25,7 +26,7 @@ def load_conversation(thread_id):
     return state.values.get('messages', [])
 
 
-# **************************************** Session Setup ******************************
+# ************************************ Session Setup ******************************
 if 'message_history' not in st.session_state:
     st.session_state['message_history'] = []
 
@@ -33,14 +34,14 @@ if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 
 if 'chat_threads' not in st.session_state:
-    st.session_state['chat_threads'] = get_all_threads()
+    st.session_state['chat_threads'] = retrieve_all_threads()
 
 add_thread(st.session_state['thread_id'])
 
 
 # **************************************** Sidebar UI *********************************
 
-st.sidebar.title('LangGraph Chatbot')
+st.sidebar.title('LangGraph MCP Chatbot')
 
 if st.sidebar.button('New Chat'):
     reset_chat()
@@ -92,11 +93,30 @@ if user_input:
         status_holder = {"box": None}
 
         def ai_only_stream():
-            for message_chunk, metadata in chatbot_db.stream(
-                {"messages": [HumanMessage(content=user_input)]},
-                config=CONFIG,
-                stream_mode="messages",
-            ):
+            event_queue: queue.Queue = queue.Queue()
+            async def run_stream():
+                try:
+                    async for message_chunk, metadata in chatbot_db.astream(
+                        {"messages": [HumanMessage(content=user_input)]},
+                        config=CONFIG,
+                        stream_mode="messages",
+                    ):
+                        event_queue.put((message_chunk, metadata))
+                except Exception as exc:
+                    event_queue.put(("error", exc))
+                finally:
+                    event_queue.put(None)
+
+            submit_async_task(run_stream())
+
+            while True:
+                item = event_queue.get()
+                if item is None:
+                    break
+                message_chunk, metadata = item
+                if message_chunk == "error":
+                    raise metadata
+
                 # Lazily create & update the SAME status container when any tool runs
                 if isinstance(message_chunk, ToolMessage):
                     tool_name = getattr(message_chunk, "name", "tool")
@@ -112,7 +132,7 @@ if user_input:
                         )
 
                 # Stream ONLY assistant tokens
-                if isinstance(message_chunk, AIMessage):
+                if isinstance(message_chunk, AIMessageChunk):
                     yield message_chunk.content
 
         ai_message = st.write_stream(ai_only_stream())

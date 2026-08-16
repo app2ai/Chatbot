@@ -14,3 +14,6 @@ langchain-openai
 
 # SQlite lib
 langgraph-checkpoint-sqlite
+
+# MCP client
+langchain-mcp-adapters
